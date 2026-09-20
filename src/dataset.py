@@ -111,3 +111,29 @@ def align_face(mtcnn, image_path):
     """
     img = Image.open(image_path).convert('RGB')
     return mtcnn(img)
+
+
+def load_processed_split(split_dir):
+    """
+    Lists the already-processed (MTCNN-aligned) images inside a split
+    folder, e.g. data/processed/train/, which contains 'live/' and
+    'spoof/' subfolders (as created by 01_preprocessing).
+
+    Returns (image_paths, labels) as parallel lists, so this can be
+    called directly on TRAIN_DIR, VAL_DIR or TEST_DIR from src.config.
+    """
+    image_paths = []
+    labels = []
+
+    live_dir = os.path.join(split_dir, 'live')
+    spoof_dir = os.path.join(split_dir, 'spoof')
+
+    for filename in sorted(os.listdir(live_dir)):
+        image_paths.append(os.path.join(live_dir, filename))
+        labels.append(LABEL_LIVE)
+
+    for filename in sorted(os.listdir(spoof_dir)):
+        image_paths.append(os.path.join(spoof_dir, filename))
+        labels.append(LABEL_SPOOF)
+
+    return image_paths, labels
