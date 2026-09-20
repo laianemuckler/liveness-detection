@@ -1,0 +1,26 @@
+# Deep learning
+torch
+torchvision
+
+# Computer vision / features
+opencv-python-headless
+scikit-image
+
+# Classic ML
+scikit-learn
+
+# Data
+numpy
+pandas
+
+# Visualization
+matplotlib
+
+# Utilities
+Pillow
+tqdm
+
+# Note: facenet-pytorch is installed separately in Colab, with --no-deps,
+# to avoid pip trying to build old numpy/Pillow versions from source
+# (no prebuilt wheels for Colab's current Python version). See README.
+# !pip install facenet-pytorch==2.6.0 --no-deps
