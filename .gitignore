@@ -1,0 +1,15 @@
+# Data (kept only in Google Drive)
+data/
+
+# Trained models (kept only in Google Drive)
+models/*.pkl
+models/*.pt
+models/*.h5
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# System
+.DS_Store
