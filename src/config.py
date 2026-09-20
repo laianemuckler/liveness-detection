@@ -11,8 +11,8 @@ import os
 # ---------------------------------------------------------------------------
 DRIVE_ROOT = '/content/drive/MyDrive/TCC'
 
-RAW_DIR = os.path.join(DRIVE_ROOT, 'data', 'raw')
-NUAA_DIR = os.path.join(RAW_DIR, 'NUAA')
+RAW_DIR = os.path.join(DRIVE_ROOT, 'Datasets', 'NUAA', 'raw')
+NUAA_DIR = RAW_DIR
 
 CLIENT_RAW_DIR = os.path.join(NUAA_DIR, 'ClientRaw')
 IMPOSTER_RAW_DIR = os.path.join(NUAA_DIR, 'ImposterRaw')
