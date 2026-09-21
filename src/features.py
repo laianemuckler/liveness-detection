@@ -27,6 +27,8 @@ does not apply here; the square 160x160 aligned face is used as-is.
 import numpy as np
 from skimage.feature import local_binary_pattern, hog
 from PIL import Image
+from concurrent.futures import ProcessPoolExecutor
+from tqdm import tqdm
 
 
 def _to_grayscale(image_path):
@@ -168,22 +170,43 @@ def hog_features(image_path, orientations=9, pixels_per_cell=(8, 8),
     return features
 
 
-# Registry so experiment notebooks can select a configuration by name
+def _lbp_global_p8r1(image_path):
+    return lbp_global(image_path, P=8, R=1)
+
+
+def _lbp_grid_p8r1_3x3(image_path):
+    return lbp_grid(image_path, P=8, R=1, grid_size=3)
+
+
+# Registry so experiment notebooks can select a configuration by name.
+# Named functions (not lambdas) are required here so they can be sent
+# to worker processes during parallel extraction.
 FEATURE_CONFIGS = {
     # LBP
-    'lbp_global_p8r1': lambda path: lbp_global(path, P=8, R=1),
-    'lbp_grid_p8r1_3x3': lambda path: lbp_grid(path, P=8, R=1, grid_size=3),
+    'lbp_global_p8r1': _lbp_global_p8r1,
+    'lbp_grid_p8r1_3x3': _lbp_grid_p8r1_3x3,
     'lbp_maatta_p16r2_p8r1': lbp_maatta,
     # HOG
     'hog_default': hog_features,
 }
 
 
-def extract_features(image_paths, config_name):
+def extract_features(image_paths, config_name, n_workers=None):
     """
     Extracts features for a list of image paths using the named
     configuration (one of FEATURE_CONFIGS keys, LBP or HOG).
-    Returns a 2D numpy array of shape (n_images, feature_dim).
+
+    Runs in parallel across n_workers processes (defaults to all
+    available CPU cores). This is safe: each image is processed
+    independently by its own worker, with no shared state between
+    them, and results are only combined (np.array) here, in the
+    main process, after every worker has finished. No file writes
+    happen inside the workers, so there's no risk of race conditions
+    or one worker overwriting another's output.
+
+    ProcessPoolExecutor.map preserves input order, so the returned
+    array lines up with image_paths (and therefore with the labels
+    list built alongside it).
     """
     if config_name not in FEATURE_CONFIGS:
         raise ValueError(
@@ -192,5 +215,14 @@ def extract_features(image_paths, config_name):
         )
 
     extractor = FEATURE_CONFIGS[config_name]
-    features = [extractor(path) for path in image_paths]
+
+    with ProcessPoolExecutor(max_workers=n_workers) as executor:
+        features = list(
+            tqdm(
+                executor.map(extractor, image_paths),
+                total=len(image_paths),
+                desc=config_name,
+            )
+        )
+
     return np.array(features)
