@@ -7,7 +7,7 @@ import csv
 from datetime import date
 
 import numpy as np
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, roc_curve
 
 from src.config import EXPERIMENT_LOG_PATH, LABEL_LIVE, LABEL_SPOOF
 
@@ -15,11 +15,13 @@ from src.config import EXPERIMENT_LOG_PATH, LABEL_LIVE, LABEL_SPOOF
 def evaluate(model, scaler, X, y):
     """
     Runs the model on (X, y) and computes standard FAS metrics.
-    Returns a dict with y_pred, y_scores, FAR, FRR, HTER, AUC.
+    Returns a dict with y_pred, y_scores, FAR, FRR, HTER, AUC, EER.
 
     FAR (False Acceptance Rate): spoof wrongly classified as live.
     FRR (False Rejection Rate):  live wrongly classified as spoof.
-    HTER: average of FAR and FRR.
+    HTER: average of FAR and FRR, at the model's default decision threshold.
+    EER (Equal Error Rate): point where FAR and FRR are equal, scanning
+    all possible thresholds (independent of the model's default cutoff).
     """
     X_scaled = scaler.transform(X)
     y_pred = model.predict(X_scaled)
@@ -28,10 +30,16 @@ def evaluate(model, scaler, X, y):
     y = np.array(y)
     y_pred = np.array(y_pred)
 
-    far = np.sum((y_pred == LABEL_SPOOF) & (y == LABEL_LIVE)) / np.sum(y == LABEL_LIVE)
-    frr = np.sum((y_pred == LABEL_LIVE) & (y == LABEL_SPOOF)) / np.sum(y == LABEL_SPOOF)
+    far = np.sum((y_pred == LABEL_LIVE) & (y == LABEL_SPOOF)) / np.sum(y == LABEL_SPOOF)
+    frr = np.sum((y_pred == LABEL_SPOOF) & (y == LABEL_LIVE)) / np.sum(y == LABEL_LIVE)
     hter = (far + frr) / 2
     auc = roc_auc_score(y, y_scores)
+
+    fpr, tpr, thresholds = roc_curve(y, y_scores, pos_label=LABEL_SPOOF)
+    fnr = 1 - tpr
+    eer_idx = np.nanargmin(np.abs(fnr - fpr))
+    eer = float(fpr[eer_idx])
+    eer_threshold = float(thresholds[eer_idx])
 
     return {
         'y_pred': y_pred,
@@ -40,18 +48,20 @@ def evaluate(model, scaler, X, y):
         'FRR': frr,
         'HTER': hter,
         'AUC': auc,
+        'EER': eer,
+        'EER_threshold': eer_threshold,
     }
 
 
 def log_experiment(exp_id, metodo, feature_config, modelo_config,
                     hter_val=None, auc_val=None, hter_test=None, auc_test=None,
-                    obs=''):
+                    eer_val=None, eer_test=None, obs=''):
     """
     Appends one row to the central experiment_log.csv (see src/config.py
     for its path). Creates the file with a header if it doesn't exist yet.
 
-    Leave hter_test/auc_test as None while still comparing configs on
-    the validation set; fill them in only for the final chosen config,
+    Leave hter_test/auc_test/eer_test as None while still comparing configs
+    on the validation set; fill them in only for the final chosen config,
     evaluated once on the test set.
     """
     file_exists = os.path.isfile(EXPERIMENT_LOG_PATH)
@@ -63,8 +73,10 @@ def log_experiment(exp_id, metodo, feature_config, modelo_config,
         'modelo_config': modelo_config,
         'HTER_val': f"{hter_val:.4f}" if hter_val is not None else '',
         'AUC_val': f"{auc_val:.4f}" if auc_val is not None else '',
+        'EER_val': f"{eer_val:.4f}" if eer_val is not None else '',
         'HTER_test': f"{hter_test:.4f}" if hter_test is not None else '',
         'AUC_test': f"{auc_test:.4f}" if auc_test is not None else '',
+        'EER_test': f"{eer_test:.4f}" if eer_test is not None else '',
         'data': date.today().isoformat(),
         'obs': obs,
     }

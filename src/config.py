@@ -39,7 +39,7 @@ EXPERIMENT_LOG_PATH = os.path.join(DRIVE_ROOT, 'experiment_log.csv')
 # Preprocessing (MTCNN)
 # ---------------------------------------------------------------------------
 MTCNN_IMAGE_SIZE = 160
-MTCNN_MARGIN = 40  # decision recorded in docs/decisions.md
+MTCNN_MARGIN = 40 
 
 # ---------------------------------------------------------------------------
 # Train/validation split
