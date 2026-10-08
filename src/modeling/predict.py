@@ -12,21 +12,20 @@ from sklearn.metrics import roc_auc_score, roc_curve
 from src.config import EXPERIMENT_LOG_PATH, LABEL_LIVE, LABEL_SPOOF
 
 
-def evaluate(model, scaler, X, y):
+def compute_metrics(y, y_scores, y_pred):
     """
-    Runs the model on (X, y) and computes standard FAS metrics.
+    Computes the standard FAS metrics from ground truth, P(spoof) scores
+    and hard predictions. Shared by every model type (SVM, CNN, ViT), so
+    all methods are scored with exactly the same definitions.
     Returns a dict with y_pred, y_scores, FAR, FRR, HTER, AUC, EER.
 
     FAR (False Acceptance Rate): spoof wrongly classified as live.
     FRR (False Rejection Rate):  live wrongly classified as spoof.
-    HTER: average of FAR and FRR, at the model's default decision threshold.
+    HTER: average of FAR and FRR, at the model's default decision threshold
+    (the one that produced y_pred).
     EER (Equal Error Rate): point where FAR and FRR are equal, scanning
     all possible thresholds (independent of the model's default cutoff).
     """
-    X_scaled = scaler.transform(X)
-    y_pred = model.predict(X_scaled)
-    y_scores = model.predict_proba(X_scaled)[:, 1]  # P(spoof)
-
     y = np.array(y)
     y_pred = np.array(y_pred)
 
@@ -51,6 +50,19 @@ def evaluate(model, scaler, X, y):
         'EER': eer,
         'EER_threshold': eer_threshold,
     }
+
+
+def evaluate(model, scaler, X, y):
+    """
+    Runs a scikit-learn model on (X, y) and computes standard FAS metrics
+    (see compute_metrics for the definitions).
+    Returns a dict with y_pred, y_scores, FAR, FRR, HTER, AUC, EER.
+    """
+    X_scaled = scaler.transform(X)
+    y_pred = model.predict(X_scaled)
+    y_scores = model.predict_proba(X_scaled)[:, 1]  # P(spoof)
+
+    return compute_metrics(y, y_scores, y_pred)
 
 
 def log_experiment(exp_id, metodo, feature_config, modelo_config,
