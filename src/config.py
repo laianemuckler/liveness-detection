@@ -42,6 +42,22 @@ MTCNN_IMAGE_SIZE = 160
 MTCNN_MARGIN = 40 
 
 # ---------------------------------------------------------------------------
+# Preprocessing v2 (second attempt): 224x224, no per-image brightness
+# rescale, lossless PNG, saved in its own folder (v1 is left untouched).
+# MTCNN margin is expressed in pixels of the OUTPUT image: the detected box
+# grows by margin / (image_size - margin) in total. 40/160 and 56/224 both
+# give 33% (same framing as v1); only the resolution changes.
+# ---------------------------------------------------------------------------
+V2_IMAGE_SIZE = 224
+V2_MARGIN = 56
+
+PROCESSED_V2_DIR = os.path.join(DRIVE_ROOT, 'data', 'processed_v2_224')
+
+TRAIN_V2_DIR = os.path.join(PROCESSED_V2_DIR, 'train')
+VAL_V2_DIR = os.path.join(PROCESSED_V2_DIR, 'validation')
+TEST_V2_DIR = os.path.join(PROCESSED_V2_DIR, 'test')
+
+# ---------------------------------------------------------------------------
 # Train/validation split
 # ---------------------------------------------------------------------------
 # Subjects held out from the official training set to form the

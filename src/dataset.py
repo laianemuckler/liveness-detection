@@ -98,9 +98,17 @@ def split_train_validation(train_entries, validation_subjects=None):
     return train_final, validation
 
 
-def build_mtcnn():
-    """Returns an MTCNN instance configured with the project's fixed settings."""
-    return MTCNN(image_size=MTCNN_IMAGE_SIZE, margin=MTCNN_MARGIN)
+def build_mtcnn(image_size=MTCNN_IMAGE_SIZE, margin=MTCNN_MARGIN, post_process=True):
+    """
+    Returns an MTCNN instance. With no arguments it is the project's original
+    configuration (v1: 160x160, margin=40, post_process=True), so existing
+    notebooks behave exactly as before.
+
+    post_process=True returns tensors standardized to roughly [-1, 1]
+    ((x - 127.5) / 128). post_process=False returns raw pixel values in
+    [0, 255] (used by preprocessing v2).
+    """
+    return MTCNN(image_size=image_size, margin=margin, post_process=post_process)
 
 
 def align_face(mtcnn, image_path):
