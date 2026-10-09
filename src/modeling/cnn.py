@@ -26,6 +26,7 @@ outputs one logit; sigmoid(logit) = P(spoof).
 import os
 import random
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pandas as pd
@@ -34,6 +35,7 @@ import torch.nn as nn
 from PIL import Image
 from torch.utils.data import DataLoader, Dataset
 from torchvision import models, transforms
+from tqdm.auto import tqdm
 
 from src.modeling.predict import compute_metrics
 
@@ -82,17 +84,58 @@ def get_transforms(rotation_degrees=10, brightness=0.2):
     return train_tf, eval_tf
 
 
+def _read_image(path):
+    return np.array(Image.open(path).convert('RGB'))
+
+
+def load_images(image_paths, cache_path=None, workers=16):
+    """
+    Returns all images as one uint8 array (N, H, W, 3).
+
+    If cache_path is given, the array is saved there (a single file) the
+    first time and loaded from it on later sessions, which is much faster
+    than re-reading thousands of small files from Google Drive. The cache
+    is rebuilt automatically if the list of image paths changes.
+
+    Reading is I/O bound (Google Drive), so files are read by several
+    threads at once, with a progress bar.
+    """
+    image_paths = [str(p) for p in image_paths]
+
+    if cache_path is not None and os.path.exists(cache_path):
+        start = time.time()
+        cached = np.load(cache_path, allow_pickle=False)
+        if np.array_equal(cached['paths'], np.array(image_paths)):
+            images = cached['images']
+            print(f"Cache carregado ({len(images)} imagens) em {time.time() - start:.1f}s: {cache_path}")
+            return images
+        print("Cache desatualizado (lista de imagens mudou). Recriando...")
+
+    start = time.time()
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        images = list(tqdm(pool.map(_read_image, image_paths),
+                           total=len(image_paths), desc='Lendo imagens', unit='img'))
+    images = np.stack(images)
+    print(f"{len(images)} imagens lidas do disco em {time.time() - start:.1f}s")
+
+    if cache_path is not None:
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        np.savez(cache_path, images=images, paths=np.array(image_paths))
+        print(f"Cache salvo em {cache_path}")
+    return images
+
+
 class FASDataset(Dataset):
     """
-    Images are read from disk once and kept in memory as uint8 arrays,
-    so epochs do not re-read from Google Drive (slow in Colab).
-    ~210 MB for train, ~700 MB for test at 160x160x3.
+    Wraps an in-memory uint8 image array (from load_images) and applies
+    the transform on the fly (augmentation changes every epoch).
     """
 
-    def __init__(self, image_paths, labels, transform):
+    def __init__(self, images, labels, transform):
+        assert len(images) == len(labels)
+        self.images = images
         self.labels = np.array(labels, dtype=np.float32)
         self.transform = transform
-        self.images = [np.array(Image.open(p).convert('RGB')) for p in image_paths]
 
     def __len__(self):
         return len(self.labels)
@@ -177,12 +220,14 @@ def _set_train_mode(model):
 # Evaluation (metrics come from src.modeling.predict.compute_metrics)
 # ---------------------------------------------------------------------------
 @torch.no_grad()
-def predict_scores(model, loader, device):
-    """Returns (P(spoof) scores, mean BCE loss) over a loader."""
+def predict_scores(model, loader, device, desc=None):
+    """Returns (P(spoof) scores, mean BCE loss) over a loader.
+    If desc is given, shows a progress bar with that label."""
     model.eval()
     criterion = nn.BCEWithLogitsLoss(reduction='sum')
     scores, total_loss, n = [], 0.0, 0
-    for x, y in loader:
+    iterator = tqdm(loader, desc=desc, leave=False, unit='batch') if desc else loader
+    for x, y in iterator:
         x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
         with torch.autocast(device_type=device.type, enabled=device.type == 'cuda'):
             logits = model(x).squeeze(1)
@@ -193,14 +238,14 @@ def predict_scores(model, loader, device):
     return np.concatenate(scores), total_loss / n
 
 
-def evaluate_cnn(model, loader, y_true, device, threshold=0.5):
+def evaluate_cnn(model, loader, y_true, device, threshold=0.5, desc=None):
     """
     Runs the model on a loader and returns the same metrics dict as
     src.modeling.predict.evaluate (+ 'loss'), so it can go straight into
     log_experiment. HTER uses the fixed threshold (0.5 on the sigmoid
     output), the CNN equivalent of the SVM's default decision rule.
     """
-    scores, loss = predict_scores(model, loader, device)
+    scores, loss = predict_scores(model, loader, device, desc=desc)
     y_pred = (scores >= threshold).astype(int)  # 1 = spoof
     results = compute_metrics(y_true, scores, y_pred)
     results['loss'] = loss
@@ -233,7 +278,10 @@ def train_cnn(model, train_loader, val_loader, y_val, device,
 
     criterion = nn.BCEWithLogitsLoss()
     use_amp = device.type == 'cuda'
-    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+    try:
+        scaler = torch.amp.GradScaler('cuda', enabled=use_amp)
+    except AttributeError:  # older PyTorch
+        scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
 
     best_loss = float('inf')
     best_state = None
@@ -245,7 +293,7 @@ def train_cnn(model, train_loader, val_loader, y_val, device,
         epoch_start = time.time()
         _set_train_mode(model)
         running_loss, n = 0.0, 0
-        for x, y in train_loader:
+        for x, y in tqdm(train_loader, desc=f"epoch {epoch:02d}", leave=False, unit='batch'):
             x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
             with torch.autocast(device_type=device.type, enabled=use_amp):
